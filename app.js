@@ -167,6 +167,13 @@ function todayIso() {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
+function dateTextIncludesToday(value) {
+  if (!value) return false;
+  const today = todayIso();
+  const normalized = String(value).replace(/[./]/g, "-");
+  return normalized.includes(today);
+}
+
 function currentDateText(dateInput = new Date()) {
   const date = dateInput instanceof Date ? dateInput : new Date(dateInput);
   const week = ["周日", "周一", "周二", "周三", "周四", "周五", "周六"][date.getDay()];
@@ -958,13 +965,46 @@ function autoRefreshQuotesOnLoad() {
       refreshMarketInfo();
       if (account.started && account.positions.length) refreshRealtimeQuotes();
     } else {
-      markRealtimePaused();
+      loadPausedMarketSnapshotIfNeeded();
     }
   }, 300);
 }
 
 function shouldSyncRealtime() {
   return getTradeSession().canTrade;
+}
+
+function hasTodayMarketSnapshot() {
+  return Boolean(account.marketInfo?.ok && dateTextIncludesToday(account.marketInfo.updatedAt || account.marketInfo.snapshotDate));
+}
+
+function hasTodayPositionQuotes() {
+  if (!account.positions.length) return true;
+  return account.positions.every((position) => dateTextIncludesToday(position.quoteUpdatedAt));
+}
+
+function needsPausedMarketSnapshot() {
+  return !shouldSyncRealtime() && (!hasTodayMarketSnapshot() || !hasTodayPositionQuotes());
+}
+
+async function loadPausedMarketSnapshotIfNeeded() {
+  if (!needsPausedMarketSnapshot() || realtimeRefreshing) {
+    markRealtimePaused();
+    return;
+  }
+  const session = getTradeSession();
+  realtimeRefreshing = true;
+  account.quoteStatus = `${session.label}，正在载入最近收盘快照。收盘后不循环刷新，只保留最后有效数据。`;
+  render();
+  try {
+    await refreshMarketInfo({ silent: true, pausedSnapshot: true });
+    if (account.started && account.positions.length) {
+      await refreshRealtimeQuotes({ silent: true, pausedSnapshot: true, skipRelatedMarketRefresh: true });
+    }
+  } finally {
+    realtimeRefreshing = false;
+    markRealtimePaused();
+  }
 }
 
 function markRealtimePaused() {
@@ -988,7 +1028,7 @@ function startQuoteAutoRefresh() {
   window.setInterval(async () => {
     syncAccountDateToToday();
     if (!shouldSyncRealtime()) {
-      markRealtimePaused();
+      await loadPausedMarketSnapshotIfNeeded();
       autoRunAfterCloseAnalysis();
       return;
     }
@@ -1860,7 +1900,9 @@ async function refreshRealtimeQuotes(options = {}) {
     }
     payload.quotes.forEach(applyQuoteToPosition);
     const providers = [...new Set(payload.quotes.map((item) => item.provider).filter(Boolean))].join("、");
-    account.quoteStatus = `实时行情已更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })} · 来源 ${providers || "行情接口"}`;
+    account.quoteStatus = options.pausedSnapshot
+      ? `收盘快照已载入：${new Date().toLocaleTimeString("zh-CN", { hour12: false })} · 来源 ${providers || "行情接口"}`
+      : `实时行情已更新：${new Date().toLocaleTimeString("zh-CN", { hour12: false })} · 来源 ${providers || "行情接口"}`;
     account.history[account.history.length - 1] = {
       day: account.day,
       date: account.date,
@@ -1871,8 +1913,10 @@ async function refreshRealtimeQuotes(options = {}) {
     };
     saveAccount();
     render();
-    refreshMarketMood();
-    refreshMarketInfo();
+    if (!options.skipRelatedMarketRefresh) {
+      refreshMarketMood();
+      refreshMarketInfo();
+    }
   } catch (error) {
     account.quoteStatus = `实时行情刷新失败：${error.message}。请检查网络，或稍后重试。`;
     render();
@@ -1921,7 +1965,13 @@ async function refreshMarketInfo(options = {}) {
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     const market = await response.json();
     if (!market.ok) throw new Error((market.errors || ["market empty"]).join("；"));
-    account.marketInfo = mergeMarketInfo(account.marketInfo, { ...market, loading: false, stale: false, syncStatus: "" });
+    account.marketInfo = mergeMarketInfo(account.marketInfo, {
+      ...market,
+      loading: false,
+      stale: false,
+      syncStatus: options.pausedSnapshot ? `${getTradeSession().label}，收盘快照已保留` : "",
+      snapshotDate: todayIso(),
+    });
     if (market.mood?.ok) {
       account.mood = market.mood.score;
       account.moodDetail = market.mood;
@@ -1968,8 +2018,8 @@ function nonEmptyOrPrevious(nextItems, previousItems) {
 
 function stableMarketCount(nextValue, previousValue, key) {
   const fallback = closingMarketFallback()[key];
-  const next = Number(nextValue);
-  const previous = Number(previousValue);
+  const next = nextValue === null || nextValue === undefined ? NaN : Number(nextValue);
+  const previous = previousValue === null || previousValue === undefined ? NaN : Number(previousValue);
   if (!Number.isFinite(next)) return Number.isFinite(previous) ? previous : fallback;
   if (!shouldSyncRealtime() && next === 0 && Number.isFinite(previous) && previous > 0) return previous;
   if (!shouldSyncRealtime() && next === 0 && fallback > 0) return fallback;
@@ -1992,23 +2042,11 @@ function ensureClosingMarketData(market) {
 
 function closingMarketFallback() {
   return {
-    limitUpCount: 76,
-    limitDownCount: 18,
-    hotUpCount: 100,
-    topConcepts: [
-      { name: "先进封装", changePct: 6.37, leader: "华天科技", leaderChangePct: 9.98, up: 34, down: 1 },
-      { name: "EDA概念", changePct: 6.13, leader: "华大九天", leaderChangePct: 20.00, up: 12, down: 0 },
-      { name: "高带宽内存", changePct: 6.10, leader: "晶方科技", leaderChangePct: 9.99, up: 25, down: 3 },
-      { name: "第四代半导体", changePct: 5.29, leader: "东微半导", leaderChangePct: 15.03, up: 2, down: 2 },
-      { name: "玻璃基板", changePct: 4.74, leader: "晶方科技", leaderChangePct: 9.99, up: 33, down: 3 },
-    ],
-    topIndustries: [
-      { name: "集成电路制造", changePct: 10.30, leader: "华虹公司", leaderChangePct: 20.00, up: 8, down: 0 },
-      { name: "集成电路封测", changePct: 8.47, leader: "华天科技", leaderChangePct: 9.98, up: 13, down: 0 },
-      { name: "半导体设备", changePct: 6.47, leader: "盛美上海", leaderChangePct: 19.42, up: 20, down: 2 },
-      { name: "橡胶助剂", changePct: 5.83, leader: "彤程新材", leaderChangePct: 7.92, up: 2, down: 0 },
-      { name: "分立器件", changePct: 5.54, leader: "新洁能", leaderChangePct: 10.01, up: 15, down: 3 },
-    ],
+    limitUpCount: null,
+    limitDownCount: null,
+    hotUpCount: null,
+    topConcepts: [],
+    topIndustries: [],
     amountLeaders: [],
   };
 }
@@ -2695,7 +2733,7 @@ wireEvents();
 render();
 persistAccountToDatabase(account, false);
 if (shouldSyncRealtime()) refreshMarketInfo();
-else markRealtimePaused();
+else loadPausedMarketSnapshotIfNeeded();
 autoRefreshQuotesOnLoad();
 startQuoteAutoRefresh();
 autoRunAfterCloseAnalysis();
