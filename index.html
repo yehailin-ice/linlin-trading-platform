@@ -1,0 +1,328 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>淋淋的实盘</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="phone-stage">
+      <section class="hero-card" id="homeView">
+        <header class="app-header">
+          <div class="logo-lockup">
+            <span class="logo-badge">淋</span>
+            <div>
+              <strong>淋淋的<span>实盘</span></strong>
+              <small>AI 自动交易 · DAY <output id="dayCount">1</output></small>
+            </div>
+          </div>
+          <button class="ghost-button" id="resetBtn" type="button">重置</button>
+        </header>
+
+        <section class="cover">
+          <p id="tradeDate">2026.05.22 · 周五</p>
+          <h1>AI 全自动交易<br />第<span id="heroDay">1</span>天</h1>
+          <p class="subline">零人工干预 · 每一笔都有逻辑</p>
+        </section>
+
+        <section class="setup-panel" id="setupPanel">
+          <h2>设置初始资金</h2>
+          <div class="setup-grid">
+            <label>
+              初始资金
+              <input id="initialCash" type="number" min="10000" step="10000" value="30000" />
+            </label>
+            <label>
+              单次下单参考
+              <input id="maxPositionPct" type="number" min="5" max="100" step="1" value="15" />
+            </label>
+          </div>
+          <button class="primary-button" id="startBtn" type="button">启动实盘记录</button>
+        </section>
+
+        <section class="run-status" id="runStatus">未启动：请先设置初始资金。</section>
+
+        <section class="local-data-panel">
+          <div>
+            <strong>本地数据</strong>
+            <span id="localSaveStatus">等待保存</span>
+          </div>
+          <div class="local-actions">
+            <button class="ghost-button" id="backupBtn" type="button">备份数据库</button>
+            <button class="ghost-button" id="restoreBtn" type="button">恢复最近备份</button>
+            <button class="ghost-button" id="portableBtn" type="button">导出迁移包</button>
+            <input id="restoreInput" type="file" accept="application/json,.json" hidden />
+          </div>
+        </section>
+
+        <section class="metric-row">
+          <article class="metric-card yellow">
+            <strong id="totalProfit">0</strong>
+            <span>获利资金(元)</span>
+          </article>
+          <article class="metric-card green">
+            <strong id="returnRate">0.00%</strong>
+            <span>累计收益</span>
+          </article>
+          <article class="metric-card blue">
+            <strong id="holdingCount">0只</strong>
+            <span>当前持仓</span>
+          </article>
+        </section>
+
+        <section class="mini-actions">
+          <button class="action-chip buy" id="aiTradeBtn" type="button">AI交易</button>
+          <button class="action-chip buy" id="autoTradeBtn" type="button">AI 自动跑一天</button>
+          <button class="action-chip" id="refreshQuotesBtn" type="button">刷新实时行情</button>
+          <button class="action-chip" id="afterCloseBtn" type="button">盘后分析</button>
+          <button class="action-chip" id="exportBtn" type="button">导出日报</button>
+        </section>
+
+        <section class="quote-status" id="quoteStatus">行情状态：等待刷新</section>
+        <section class="quote-status secondary" id="quoteTimer">实时同步：每 10 秒自动更新</section>
+
+        <section class="market-panel">
+          <div class="board-head">
+            <h2>A股实时盘面</h2>
+            <span id="marketUpdatedAt">等待刷新</span>
+          </div>
+          <div id="indexGrid" class="index-grid"></div>
+          <div class="market-stats">
+            <article>
+              <strong id="limitUpCount">--</strong>
+              <span>涨停</span>
+            </article>
+            <article>
+              <strong id="limitDownCount">--</strong>
+              <span>跌停</span>
+            </article>
+            <article>
+              <strong id="hotUpCount">--</strong>
+              <span>强势股</span>
+            </article>
+          </div>
+          <div class="market-lists">
+            <article>
+              <h3>概念涨幅榜</h3>
+              <div id="conceptList" class="mini-list"></div>
+            </article>
+            <article>
+              <h3>行业涨幅榜</h3>
+              <div id="industryList" class="mini-list"></div>
+            </article>
+            <article>
+              <h3>成交额/量前排</h3>
+              <div id="amountLeaderList" class="mini-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="auction-panel">
+          <div class="board-head">
+            <h2>集合竞价分析</h2>
+            <span id="auctionUpdatedAt">等待盘面数据</span>
+          </div>
+          <div class="auction-grid">
+            <article>
+              <span>早盘集合竞价</span>
+              <strong id="openAuctionScore">--</strong>
+              <p id="openAuctionText">等待实时盘面和情绪数据。</p>
+            </article>
+            <article>
+              <span>尾盘集合竞价</span>
+              <strong id="closeAuctionScore">--</strong>
+              <p id="closeAuctionText">等待实时盘面和情绪数据。</p>
+            </article>
+          </div>
+        </section>
+
+        <section class="after-close-panel">
+          <div class="board-head">
+            <h2>盘后分析</h2>
+            <span id="afterCloseUpdatedAt">收盘后自动生成</span>
+          </div>
+          <div class="after-close-summary">
+            <strong id="afterCloseConclusion">等待收盘分析</strong>
+            <p id="afterCloseSummary">交易日 15:05 后会自动分析盘面、国内政策、海外局势、油价和金价。</p>
+          </div>
+          <div class="after-close-grid">
+            <article>
+              <h3>国内政策/消息</h3>
+              <div id="domesticNewsList" class="mini-list"></div>
+            </article>
+            <article>
+              <h3>国际/商品</h3>
+              <div id="globalNewsList" class="mini-list"></div>
+            </article>
+            <article>
+              <h3>明日计划</h3>
+              <div id="afterClosePlanList" class="mini-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="status-grid">
+          <article>
+            <span>市场情绪</span>
+            <strong id="moodScore">50</strong>
+            <small id="moodLabel">中性</small>
+            <small id="moodBreadth">阳 --% / 阴 --%</small>
+          </article>
+          <article>
+            <span>总仓位</span>
+            <strong id="positionPct">0%</strong>
+            <div class="progress"><i id="positionBar"></i></div>
+          </article>
+          <article>
+            <span>剩余可用资金</span>
+            <strong id="availableCash">0</strong>
+            <small>用于后续补仓</small>
+          </article>
+        </section>
+
+        <section class="ai-comment">
+          <strong>🤖 AI 日评</strong>
+          <span id="aiComment">设置初始资金后开始运行，系统会按信号记录买卖。</span>
+        </section>
+
+        <section class="trade-board">
+          <div class="board-head">
+            <h2>今日操作</h2>
+            <button class="ghost-button" id="openOrderBtn" type="button">手动下单</button>
+          </div>
+          <div class="order-form" id="orderForm">
+            <label>代码<input id="stockCode" maxlength="6" placeholder="002230" /></label>
+            <label>名称<input id="stockName" placeholder="科大讯飞" /></label>
+            <label>价格<input id="stockPrice" type="number" min="0.01" step="0.01" placeholder="43.90" /></label>
+            <label>金额<input id="orderAmount" type="number" min="100" step="100" placeholder="15000" /></label>
+            <button class="primary-button" id="buyBtn" type="button">买入</button>
+          </div>
+          <div class="trade-columns">
+            <article>
+              <h3>买入 · <output id="buyCount">0</output></h3>
+              <div id="buyList" class="trade-list"></div>
+            </article>
+            <article>
+              <h3>卖出 · <output id="sellCount">0</output></h3>
+              <div id="sellList" class="trade-list"></div>
+            </article>
+          </div>
+        </section>
+
+        <section class="history-entry-panel">
+          <div>
+            <h2>历史成交</h2>
+            <small>查看全部买入、卖出、费用和盈亏流水。</small>
+          </div>
+          <button class="ghost-button" id="openHistoryBtn" type="button">查看历史</button>
+        </section>
+
+        <section class="candidate-entry-panel">
+          <div>
+            <h2>bafeite 候选池</h2>
+            <small>查看实时热门板块、成交额前排和日K评分后的候选股。</small>
+          </div>
+          <button class="ghost-button" id="openCandidatesBtn" type="button">查看候选</button>
+        </section>
+
+        <section class="holding-panel">
+          <h2>当前持仓 · <output id="holdingTitleCount">0</output>只</h2>
+          <div id="holdingList" class="holding-list"></div>
+        </section>
+
+        <section class="query-entry-panel">
+          <div>
+            <h2>持仓查询</h2>
+            <small>查看持仓成本、费用、市值、收益和已清仓记录。</small>
+          </div>
+          <div class="query-entry-actions">
+            <button class="ghost-button" type="button" data-query-open="open">现有持仓</button>
+            <button class="ghost-button" type="button" data-query-open="closed">已清仓</button>
+          </div>
+        </section>
+
+      </section>
+
+      <section class="hero-card query-view view-hidden" id="queryView">
+        <header class="query-view-header">
+          <button class="ghost-button" id="queryBackBtn" type="button">返回</button>
+          <div>
+            <strong>持仓查询</strong>
+            <small>成本、费用、市值和收益明细</small>
+          </div>
+        </header>
+
+        <nav class="query-tabs" aria-label="持仓查询类型">
+          <button class="query-tab active" type="button" data-query-tab="open">现有持仓</button>
+          <button class="query-tab" type="button" data-query-tab="closed">已清仓</button>
+        </nav>
+
+        <section class="query-panel query-section" id="openQuerySection">
+          <div class="board-head">
+            <h2>现有持仓查询</h2>
+            <input id="openPositionSearch" class="search-input" placeholder="输入代码或名称" />
+          </div>
+          <div id="openPositionQueryList" class="query-list"></div>
+        </section>
+
+        <section class="query-panel query-section view-hidden" id="closedQuerySection">
+          <div class="board-head">
+            <h2>已清仓查询（已卖出）</h2>
+            <input id="closedPositionSearch" class="search-input" placeholder="输入代码或名称" />
+          </div>
+          <div id="closedPositionQueryList" class="query-list"></div>
+        </section>
+      </section>
+
+      <section class="hero-card query-view view-hidden" id="historyView">
+        <header class="query-view-header">
+          <button class="ghost-button" id="historyBackBtn" type="button">返回</button>
+          <div>
+            <strong>历史成交</strong>
+            <small>全部买入、卖出、费用和盈亏流水</small>
+          </div>
+        </header>
+
+        <section class="history-panel">
+          <div class="board-head">
+            <h2>成交流水</h2>
+            <input id="historyTradeSearch" class="search-input" placeholder="输入代码或名称" />
+          </div>
+          <div id="historyTradeList" class="trade-list"></div>
+        </section>
+      </section>
+
+      <section class="hero-card query-view view-hidden" id="candidateView">
+        <header class="query-view-header">
+          <button class="ghost-button" id="candidateBackBtn" type="button">返回</button>
+          <div>
+            <strong>bafeite 候选池</strong>
+            <small>实时热门板块、成交额前排、日K、均线、量能和资金活跃筛选</small>
+          </div>
+        </header>
+
+        <section class="candidate-panel">
+          <div class="board-head">
+            <h2>候选列表</h2>
+            <button class="ghost-button" id="refreshCandidatesBtn" type="button">刷新评分</button>
+          </div>
+          <div id="candidateList" class="candidate-list"></div>
+        </section>
+      </section>
+    </main>
+
+    <div class="modal-backdrop" id="resetModal" aria-hidden="true">
+      <section class="confirm-modal" role="dialog" aria-modal="true" aria-labelledby="resetTitle">
+        <h2 id="resetTitle">确认重置实盘记录？</h2>
+        <p>这会清空本地保存的资金、持仓、成交记录和收益曲线。备份数据不会自动生成。</p>
+        <div class="modal-actions">
+          <button class="ghost-button" id="cancelResetBtn" type="button">取消</button>
+          <button class="danger-button" id="confirmResetBtn" type="button">确认重置</button>
+        </div>
+      </section>
+    </div>
+
+    <script src="./app.js"></script>
+  </body>
+</html>

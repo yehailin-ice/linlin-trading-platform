@@ -1,0 +1,13 @@
+services:
+  linlin-trading:
+    build: .
+    container_name: linlin-trading
+    ports:
+      - "5174:5174"
+    environment:
+      HOST: 0.0.0.0
+      PORT: 5174
+      LINLIN_DATA_DIR: /app/data
+    volumes:
+      - ./data:/app/data
+    restart: unless-stopped

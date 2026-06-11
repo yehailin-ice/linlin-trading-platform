@@ -1,0 +1,15 @@
+.DS_Store
+__pycache__/
+*.pyc
+
+# Local runtime data and private trading records
+data/
+logs/
+
+# Exported bundles
+linlin-platform-export/
+linlin-platform-export.zip
+
+# Local environment files
+.env
+.env.*
