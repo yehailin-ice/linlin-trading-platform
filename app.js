@@ -131,6 +131,7 @@ function yuan(value) {
 function amountYi(value) {
   const number = Number(value || 0);
   if (!Number.isFinite(number)) return "--";
+  if (number > 0 && number < 10000000) return `${(number / 10000).toFixed(1)}亿`;
   return `${(number / 100000000).toFixed(1)}亿`;
 }
 

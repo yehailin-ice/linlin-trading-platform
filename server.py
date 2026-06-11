@@ -10,7 +10,7 @@ import time
 import zipfile
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
-from urllib.parse import parse_qs, quote, urlparse
+from urllib.parse import parse_qs, quote, urlencode, urlparse
 from urllib.request import Request, urlopen
 
 
@@ -796,11 +796,11 @@ def fetch_market_mood_tencent(error_prefix=""):
 
 
 def eastmoney_clist(params):
-    query = "&".join(f"{key}={value}" for key, value in params.items())
+    query = urlencode(params)
     last_error = None
     for host in ("https://push2.eastmoney.com", "http://push2.eastmoney.com"):
         try:
-            payload = json.loads(request_text(f"{host}/api/qt/clist/get?{query}"))
+            payload = json.loads(request_text(f"{host}/api/qt/clist/get?{query}", referer="https://quote.eastmoney.com/"))
             rows = payload.get("data", {}).get("diff") or []
             if rows:
                 return rows
@@ -853,6 +853,95 @@ def fetch_sina_strength_counts():
         "hotUpCount": len([row for row in main_up if safe_float(row.get("changepercent")) >= 5]),
         "limitDownCount": len([row for row in main_down if safe_float(row.get("changepercent")) <= -9.8]),
         "provider": "新浪涨跌幅榜统计",
+    }
+
+
+def fetch_sina_amount_leaders():
+    rows = sina_market_rows(sort="amount", asc=0, pages=3, num=80)
+    leaders = []
+    for row in rows:
+        code = str(row.get("code") or "")
+        if not re.match(r"^(600|601|603|605|000|001|002|003)\d{3}$", code):
+            continue
+        leaders.append({
+            "code": code,
+            "name": row.get("name") or code,
+            "price": safe_float(row.get("trade")),
+            "changePct": safe_float(row.get("changepercent")),
+            "volume": safe_float(row.get("volume")),
+            "amount": safe_float(row.get("amount")),
+            "turnoverRate": safe_float(row.get("turnoverratio")),
+            "provider": "新浪成交额排行",
+        })
+        if len(leaders) >= 8:
+            break
+    return leaders
+
+
+FALLBACK_MARKET_UNIVERSE = [
+    ("000063", "通信设备", "5G/通信设备"),
+    ("600498", "光通信", "算力网络/光通信"),
+    ("600176", "玻纤材料", "顺周期材料/玻纤"),
+    ("601138", "算力服务器", "AI服务器/电子制造"),
+    ("002463", "AI PCB", "PCB/电子元件"),
+    ("603019", "算力国产化", "国产算力/IT设备"),
+    ("603986", "存储芯片", "半导体/存储芯片"),
+    ("688256", "半导体设备", "半导体/设备"),
+]
+
+
+def market_sections_from_fallback_quotes():
+    codes = [item[0] for item in FALLBACK_MARKET_UNIVERSE]
+    quote_result = fetch_quotes(codes)
+    if not quote_result.get("ok"):
+        raise RuntimeError("; ".join(quote_result.get("errors", [])[:3]) or "fallback quotes empty")
+    meta = {code: {"concept": concept, "industry": industry} for code, concept, industry in FALLBACK_MARKET_UNIVERSE}
+    quotes = []
+    for quote_item in quote_result.get("quotes", []):
+        code = quote_item.get("code")
+        if code not in meta:
+            continue
+        item = {
+            **quote_item,
+            "concept": meta[code]["concept"],
+            "industry": meta[code]["industry"],
+        }
+        quotes.append(item)
+    if not quotes:
+        raise RuntimeError("fallback quote rows empty")
+
+    def grouped_rows(field):
+        groups = {}
+        for item in quotes:
+            key = item[field]
+            current = groups.setdefault(key, {"name": key, "members": [], "up": 0, "down": 0})
+            current["members"].append(item)
+            if safe_float(item.get("changePct")) is not None and safe_float(item.get("changePct")) >= 0:
+                current["up"] += 1
+            else:
+                current["down"] += 1
+        rows = []
+        for group in groups.values():
+            members = sorted(group["members"], key=lambda row: safe_float(row.get("changePct")) or -999, reverse=True)
+            leader = members[0]
+            changes = [safe_float(row.get("changePct")) for row in members if safe_float(row.get("changePct")) is not None]
+            rows.append({
+                "name": group["name"],
+                "changePct": round(sum(changes) / max(len(changes), 1), 2),
+                "up": group["up"],
+                "down": group["down"],
+                "leader": leader.get("name"),
+                "leaderChangePct": leader.get("changePct"),
+                "provider": "腾讯候选池实时兜底",
+            })
+        return sorted(rows, key=lambda row: safe_float(row.get("changePct")) or -999, reverse=True)[:8]
+
+    leaders = sorted(quotes, key=lambda row: safe_float(row.get("amount")) or 0, reverse=True)[:8]
+    return {
+        "topConcepts": grouped_rows("concept"),
+        "topIndustries": grouped_rows("industry"),
+        "amountLeaders": leaders,
+        "provider": "腾讯候选池实时兜底",
     }
 
 
@@ -1016,6 +1105,23 @@ def fetch_market_overview():
     top_concepts = results.get("top_concepts") or (mood.get("topConcepts", []) if mood.get("ok") else [])
     top_industries = results.get("top_industries") or []
     amount_leaders = results.get("amount_leaders") or []
+    if not amount_leaders:
+        try:
+            amount_leaders = fetch_sina_amount_leaders()
+        except Exception as exc:
+            errors.append(f"sina_amount_leaders: {exc}")
+    if not top_concepts or not top_industries or not amount_leaders:
+        try:
+            fallback_sections = market_sections_from_fallback_quotes()
+            if not top_concepts:
+                top_concepts = fallback_sections["topConcepts"]
+            if not top_industries:
+                top_industries = fallback_sections["topIndustries"]
+            if not amount_leaders:
+                amount_leaders = fallback_sections["amountLeaders"]
+            errors.append(f"section fallback: {fallback_sections['provider']}")
+        except Exception as exc:
+            errors.append(f"section fallback: {exc}")
     strength_counts = results.get("strength_counts") or {}
     sina_strength_counts_result = results.get("sina_strength_counts") or {}
     limit_down_count = results.get("limit_down_count")
@@ -1031,13 +1137,13 @@ def fetch_market_overview():
         limit_down_count = sina_strength_counts_result.get("limitDownCount")
     if not hot_up_count and sina_strength_counts_result.get("hotUpCount") is not None:
         hot_up_count = sina_strength_counts_result.get("hotUpCount")
-    if limit_up_count is None:
+    if limit_up_count is None and ((top_concepts or []) or (top_industries or [])):
         leader_pool = (top_concepts or []) + (top_industries or [])
         limit_up_count = len([
             item for item in leader_pool
             if safe_float(item.get("leaderChangePct")) is not None and safe_float(item.get("leaderChangePct")) >= 9.8
         ])
-    if hot_up_count is None:
+    if hot_up_count is None and ((top_concepts or []) or (top_industries or []) or (amount_leaders or [])):
         leader_pool = (top_concepts or []) + (top_industries or [])
         amount_hot = [
             item for item in amount_leaders
